@@ -1,0 +1,39 @@
+# Dockerfile.linaro — build the recipe module with the ancient Linaro-family
+# toolchain (ARM "GNU Tools for ARM Embedded Processors 6-2017-q2-update",
+# gcc 6.3.1), the same compiler generation Samsung used for the Tizen 5.5 TV
+# kernel (its banner: "gcc version 6.2.1 20161213 (Tizen/Linaro GCC 6.2.1)").
+#
+# Why you might prefer this over the default Dockerfile (Debian's gcc 12):
+#   - with gcc 6.x the inline top-level asm does NOT leak sections (the
+#     gcc-16 behavior that forced the separate plt.S — see wall 6 in the
+#     README), and there is no DWARF5/-g0 issue. Codegen is as close as
+#     possible to Samsung's own modules.
+#   - the loader walls themselves (PLT sections, vermagic, ARM mode,
+#     -fno-unwind-tables) are kernel conventions, not toolchain quirks —
+#     this variant does not remove them, only the modern-gcc surprises.
+#
+# Caveats:
+#   - the 2017 toolchain is x86_64-only: on Apple Silicon run with
+#     --platform linux/amd64 (QEMU emulation — slower but verified working);
+#     on amd64 Docker hosts it runs natively.
+#   - Linaro's own 6.2.1 archives are dead (releases.linaro.org and
+#     snapshots.linaro.org redirect to a contact page); ARM's 6.3.1 release
+#     is the closest surviving download (hosted on ARM's Azure CDN).
+#
+# One-shot build:
+#   docker build --platform linux/amd64 -f Dockerfile.linaro --output out .
+FROM debian:bookworm-slim AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates bzip2 python3 \
+    && curl -sL -o /tmp/gcc.tar.bz2 \
+        https://armkeil.blob.core.windows.net/developer/Files/downloads/gnu-rm/6-2017q2/gcc-arm-none-eabi-6-2017-q2-update-linux.tar.bz2 \
+    && tar -C /opt -xjf /tmp/gcc.tar.bz2 \
+    && rm /tmp/gcc.tar.bz2 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY . .
+RUN chmod +x build.sh verify.sh \
+    && CROSS_COMPILE=/opt/gcc-arm-none-eabi-6-2017-q2-update/bin/arm-none-eabi- ./build.sh
+
+FROM scratch
+COPY --from=builder /src/out/research_kmem.ko /research_kmem.ko

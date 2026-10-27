@@ -1,0 +1,3 @@
+kernel-headers/*.o
+kernel-headers/*.d
+out/
